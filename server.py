@@ -5,6 +5,7 @@ from queue import Queue
 from utils import Request_Message
 from utils import Response_Message
 import multiprocessing
+import time
 
 
 class Player:
@@ -13,30 +14,34 @@ class Player:
         self.socket = socket
         self.player_IP = player_IP
         self.player_port = player_port
+        self.msg = None
 
+    def update_msg(self, msg):
+        self.msg = msg
 
-class TCP_Server(multiprocessing.Process):
-    def __init__(self, server_IP, server_TCP_port, receive_queue, send_queue, player_queue):
-        multiprocessing.Process.__init__(self)
+class TCP_Server():
+    def __init__(self, server_IP, server_TCP_port):
         self.valid = True
         self.server_IP = server_IP
         self.server_TCP_port = server_TCP_port
-        self.receive_queue = receive_queue
-        self.send_queue = send_queue
-        self.player_queue = player_queue
-        print("init")
-        new_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket = new_socket
 
     def setup(self):
+        new_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket = new_socket
         self.socket.bind((self.server_IP, self.server_TCP_port))
         self.socket.listen(5)
 
-    def receive_msg(self, client_socket, receive_queue):
+    def receive_msg(self, player, receive_queue):
         while (self.valid):
-            encoded_msg = client_socket.recv(1024)
-            print(encoded_msg.decode())
-            receive_queue.put(encoded_msg)
+            try:
+                encoded_msg = player.socket.recv(1024)
+                print(encoded_msg.decode())
+                player.update_msg(encoded_msg)
+                receive_queue.put(player)
+            except ConnectionResetError:
+                print("client dropped - receiving closed")
+                time.sleep(1)
+                break
 
     def listen(self, receive_queue, player_queue):
         while (self.valid):
@@ -44,23 +49,26 @@ class TCP_Server(multiprocessing.Process):
             print("new client")
             new_player = Player(client_socket, client_add[0], client_add[1])
             player_queue.put(new_player)
-            new_client = threading.Thread(target=self.receive_msg, args=(client_socket, receive_queue))
+            new_client = threading.Thread(target=self.receive_msg, args=(new_player, receive_queue))
             new_client.start()
 
-    def send_msg(self, send_queue, client_socket):
+    def send_msg(self, send_queue):
         while (self.valid):
             if not send_queue.empty():
-                encoded_msg = send_queue.get()
-                client_socket.send(encoded_msg)
+                player = send_queue.get()
+                encoded_msg = player.msg
+                try:
+                    player.socket.send(encoded_msg)
+                except ConnectionResetError:
+                    print("client dropped - sending ceased")
 
-    def run(self):
+    def start(self, receive_queue, send_queue, player_queue):
         self.setup()
 
-        start_send = threading.Thread(target=self.listen, args=(self.receive_queue, self.player_queue))
+        start_send = threading.Thread(target=self.listen, args=(receive_queue, player_queue))
         start_send.start()
 
-        new_player = self.player_queue.get()
-        start_send = threading.Thread(target=self.send_msg, args=(self.send_queue, new_player.socket,))
+        start_send = threading.Thread(target=self.send_msg, args=(send_queue,))
         start_send.start()
 
 

@@ -13,11 +13,18 @@ if __name__ == '__main__':
     receive_queue = multiprocessing.Queue()
     send_queue = multiprocessing.Queue()
     player_queue = multiprocessing.Queue()
-    tcp_server = TCP_Server(host, port, receive_queue, send_queue, player_queue)
-    print("!!")
-    tcp_server.start()
 
+    tcp_server = TCP_Server(host, port)
+    start_TCP = multiprocessing.Process(target=tcp_server.start, args=(receive_queue, send_queue, player_queue))
+    start_TCP.start()
+    count = 0
 
+    player = player_queue.get()
     while (True):
+        count += 1
         time.sleep(1)
-        send_queue.put("good".encode("ascii"))
+        player.update_msg("good".encode("ascii"))
+        send_queue.put(player)
+        if (count == 20):
+            print("someone")
+            player = player_queue.get()
